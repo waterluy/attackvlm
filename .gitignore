@@ -1,0 +1,8 @@
+src/taming-transformers/taming/modules/vqvae/__pycache__
+.pytest_cache
+__pycache__
+*.pyc
+src/taming-transformers/taming/modules/vqvae/__pycache__/quantize.cpython-38.pyc
+
+
+
