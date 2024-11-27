@@ -7,7 +7,7 @@ import torch
 import torchvision
 from PIL import Image
 import cv2
-
+import json
 
 # seed for everything
 # credit: https://www.kaggle.com/code/rhythmcam/random-seed-everything
@@ -62,8 +62,9 @@ if __name__ == "__main__":
     parser.add_argument("--clip_encoder", default="ViT-B/32", type=str)
     parser.add_argument("--epsilon", default=0.1, type=float)
     parser.add_argument("--steps", default=160, type=int)
-    parser.add_argument("--cle_data_path", default='/home/beihang/wlu/adllm/Dolphins/playground/dolphins_bench', type=str, help='path of the clean images')
+    parser.add_argument("--cle_data_path", default='/home/beihang/wlu/adllm/DriveLM/challenge/llama_adapter_v2_multimodal7b', type=str, help='path of the clean images')
     parser.add_argument("--tgt_data_path", default='/home/beihang/wlu/vlmattack/AttackVLM/stable-diffusion/target_imgs/samples/00000.png', type=str, help='path of the target images')
+    parser.add_argument('--json', default='/home/beihang/wlu/adllm/DriveLM/challenge/json/test_llama.json')
     args = parser.parse_args()
     
     # load clip_model params
@@ -73,14 +74,14 @@ if __name__ == "__main__":
 
     # ------------- pre-processing images/text ------------- # 
     # preprocess images    
-    preprocess_wo_to = torchvision.transforms.Compose(
+    preprocess_wo_no = torchvision.transforms.Compose(
         [
             torchvision.transforms.Resize(clip_model.visual.input_resolution, interpolation=torchvision.transforms.InterpolationMode.BICUBIC, antialias=True),
             torchvision.transforms.CenterCrop(clip_model.visual.input_resolution),
             torchvision.transforms.ToTensor(),
         ]
     )
-    preprocess__normalize = torchvision.transforms.Compose(
+    preprocess_normalize = torchvision.transforms.Compose(
         [
             torchvision.transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)), # CLIP imgs mean and std.
         ]
@@ -96,17 +97,21 @@ if __name__ == "__main__":
         tgt_image_features = tgt_image_features / tgt_image_features.norm(dim=1, keepdim=True)
 
     # -------- get adv image -------- #
-    for root, dirs, files in os.walk(args.cle_data_path):
-        for mp4 in files:
-            if not mp4.endswith('.mp4'):
+    with open(args.json, 'r') as f:
+        llama_data = json.load(f)
+    for item in llama_data:
+        img_list = item["image"]
+        for img in img_list:
+            save_path = os.path.join('/home/beihang/wlu/adllm/DriveLM', f"attackvlm_noise{epsilon}", img)
+            if os.path.exists(save_path):
                 continue
-            mp4_path = os.path.join(root, mp4)
-            frame0 = extract_frames(mp4_path)[0]
-            image_org = preprocess_wo_to(frame0).unsqueeze(0).to(device)
+            jpg_path = os.path.join(args.cle_data_path, img)
+            image_org = Image.open(jpg_path).convert('RGB')
+            image_org = preprocess_wo_no(image_org).unsqueeze(0).to(device)
             delta = torch.zeros_like(image_org, requires_grad=True)
             for j in range(args.steps):
                 adv_image = image_org + delta
-                adv_image = preprocess__normalize(adv_image).to(device)
+                adv_image = preprocess_normalize(adv_image).to(device)
                 adv_image_features = clip_model.encode_image(adv_image)
                 adv_image_features = adv_image_features / adv_image_features.norm(dim=1, keepdim=True)
 
@@ -120,8 +125,8 @@ if __name__ == "__main__":
                 print(f"step:{j:3d}, embedding similarity={embedding_sim.item():.5f}, max delta={torch.max(torch.abs(d)).item():.3f}, mean delta={torch.mean(torch.abs(d)).item():.3f}")
 
             # save imgs
-            save_path = mp4_path.replace('playground/dolphins_bench', f"attackvlm_noise{epsilon}")
-            save_path = save_path.replace(".mp4", "-noise1.png")
+            save_path = os.path.join('/home/beihang/wlu/adllm/DriveLM', f"attackvlm_noise{epsilon}", img)
+            save_path = save_path.replace(".jpg", "-noise1.jpg")
             folder = os.path.dirname(save_path)
             if not os.path.exists(folder):
                 os.makedirs(folder, exist_ok=True)
